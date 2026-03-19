@@ -15,7 +15,7 @@ from nio import (
     UnknownEvent,
 )
 
-from cross_signing import _canonical_json, cross_sign_user_msk
+from cross_signing import _canonical_json, cross_sign_user_msk, get_msk_public_key
 
 log = logging.getLogger("mistral-bot")
 
@@ -250,6 +250,14 @@ async def _room_send_mac(room, req_id, v):
 
     key_ids = [device_key_id]
     macs = {device_key_id: calc_mac(our_ed25519, mac_base + device_key_id)}
+
+    # Include our MSK in the MAC so the other side can verify our cross-signing identity
+    msk_pub = get_msk_public_key()
+    if msk_pub:
+        msk_key_id = f"ed25519:{msk_pub}"
+        key_ids.append(msk_key_id)
+        macs[msk_key_id] = calc_mac(msk_pub, mac_base + msk_key_id)
+
     keys_mac = calc_mac(",".join(sorted(key_ids)), mac_base + "KEY_IDS")
 
     await matrix.room_send(

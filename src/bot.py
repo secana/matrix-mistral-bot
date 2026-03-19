@@ -57,8 +57,16 @@ SYSTEM_PROMPT_TEMPLATE = os.environ.get(
 )
 
 os.makedirs(STORE_PATH, exist_ok=True)
+_device_id_file = os.path.join(STORE_PATH, "device_id")
+_saved_device_id = None
+if os.path.exists(_device_id_file):
+    with open(_device_id_file) as _f:
+        _saved_device_id = _f.read().strip()
 client_config = ClientConfig(store_sync_tokens=True)
-matrix = AsyncClient(HOMESERVER, USER_ID, store_path=STORE_PATH, config=client_config)
+matrix = AsyncClient(
+    HOMESERVER, USER_ID, device_id=_saved_device_id,
+    store_path=STORE_PATH, config=client_config,
+)
 
 
 def trust_all_devices() -> None:
@@ -106,19 +114,11 @@ async def main() -> None:
     matrix.add_to_device_callback(verification.handle_mac, KeyVerificationMac)
     matrix.add_to_device_callback(verification.handle_cancel, KeyVerificationCancel)
 
-    log.info("Logging in as %s...", USER_ID)
-    device_id_file = os.path.join(STORE_PATH, "device_id")
-    saved_device_id = None
-    if os.path.exists(device_id_file):
-        with open(device_id_file) as f:
-            saved_device_id = f.read().strip()
-        log.info("Reusing device_id: %s", saved_device_id)
-    resp = await matrix.login(
-        MATRIX_PASSWORD, device_name="MistralBot", device_id=saved_device_id
-    )
+    log.info("Logging in as %s (device_id=%s)...", USER_ID, _saved_device_id)
+    resp = await matrix.login(MATRIX_PASSWORD, device_name="MistralBot")
     if hasattr(resp, "access_token"):
         log.info("Logged in, device_id: %s", resp.device_id)
-        with open(device_id_file, "w") as f:
+        with open(_device_id_file, "w") as f:
             f.write(resp.device_id)
     else:
         log.error("Login failed: %s", resp)

@@ -170,14 +170,18 @@ async def _sign_own_device(session, headers, self_signing) -> bool:
         }
     }
 
+    log.info("Signing device %s with SSK %s", device_id, ssk_pub)
+
     async with session.post(
         f"{HOMESERVER}/_matrix/client/v3/keys/signatures/upload",
         headers=headers,
         json=sig_body,
     ) as resp:
+        resp_body = await resp.text()
         if resp.status != 200:
-            log.error("Device signature upload failed: %s", await resp.text())
+            log.error("Device signature upload failed: %s", resp_body)
             return False
+        log.info("Device signature upload response: %s", resp_body)
 
     log.info("Cross-signing bootstrap complete, device %s signed", device_id)
     return True
@@ -209,12 +213,35 @@ async def bootstrap() -> None:
         self_signing = PkSigning(ssk_seed)
         _user_signing = PkSigning(usk_seed)
 
-        if not await _upload_cross_signing_keys(
-            session, headers, master, self_signing, _user_signing
-        ):
-            return
+        # Check if server already has matching MSK — skip upload to avoid identity reset
+        server_msk = keys_data.get("master_keys", {}).get(USER_ID, {})
+        server_msk_pub = None
+        for key in server_msk.get("keys", {}).values():
+            server_msk_pub = key
+            break
+
+        if server_msk_pub == master.public_key:
+            log.info("Cross-signing keys already match server, skipping upload")
+        else:
+            if not await _upload_cross_signing_keys(
+                session, headers, master, self_signing, _user_signing
+            ):
+                return
 
         await _sign_own_device(session, headers, self_signing)
+
+
+def get_msk_public_key() -> str | None:
+    """Return the local MSK public key, or None if seeds don't exist."""
+    from olm.pk import PkSigning
+
+    seeds_file = os.path.join(STORE_PATH, "cross_signing_seeds.json")
+    if not os.path.exists(seeds_file):
+        return None
+    with open(seeds_file) as f:
+        seeds = json.load(f)
+    msk = PkSigning(base64.b64decode(seeds["master"]))
+    return msk.public_key
 
 
 async def cross_sign_user_msk(user_id: str) -> None:
