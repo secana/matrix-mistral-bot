@@ -86,6 +86,9 @@ async def _upload_cross_signing_keys(
         "usage": ["master"],
         "keys": {f"ed25519:{msk_pub}": msk_pub},
     }
+    msk_obj["signatures"] = {
+        USER_ID: {f"ed25519:{msk_pub}": _sign_json(master, msk_obj)}
+    }
     ssk_obj = {
         "user_id": USER_ID,
         "usage": ["self_signing"],
@@ -206,11 +209,10 @@ async def bootstrap() -> None:
         self_signing = PkSigning(ssk_seed)
         _user_signing = PkSigning(usk_seed)
 
-        if not has_cross_signing:
-            if not await _upload_cross_signing_keys(
-                session, headers, master, self_signing, _user_signing
-            ):
-                return
+        if not await _upload_cross_signing_keys(
+            session, headers, master, self_signing, _user_signing
+        ):
+            return
 
         await _sign_own_device(session, headers, self_signing)
 

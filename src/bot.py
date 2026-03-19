@@ -107,9 +107,19 @@ async def main() -> None:
     matrix.add_to_device_callback(verification.handle_cancel, KeyVerificationCancel)
 
     log.info("Logging in as %s...", USER_ID)
-    resp = await matrix.login(MATRIX_PASSWORD, device_name="MistralBot")
+    device_id_file = os.path.join(STORE_PATH, "device_id")
+    saved_device_id = None
+    if os.path.exists(device_id_file):
+        with open(device_id_file) as f:
+            saved_device_id = f.read().strip()
+        log.info("Reusing device_id: %s", saved_device_id)
+    resp = await matrix.login(
+        MATRIX_PASSWORD, device_name="MistralBot", device_id=saved_device_id
+    )
     if hasattr(resp, "access_token"):
         log.info("Logged in, device_id: %s", resp.device_id)
+        with open(device_id_file, "w") as f:
+            f.write(resp.device_id)
     else:
         log.error("Login failed: %s", resp)
         return
