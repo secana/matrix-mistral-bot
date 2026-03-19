@@ -137,5 +137,7 @@ async def handle_message(room: MatrixRoom, event: RoomMessageText) -> None:
 
     if _trust_all_devices:
         _trust_all_devices()
+    if room.encrypted:
+        await matrix.share_group_session(room.room_id)
     await matrix.room_send(room.room_id, "m.room.message", content)
     log.info("Replied in %s (%d chars)", room.room_id, len(reply))
