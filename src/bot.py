@@ -1,9 +1,9 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
 # dependencies = [
-#     "matrix-nio[e2e]>=0.24,<1.0",
-#     "mistralai>=2.0,<3.0",
-#     "duckduckgo-search>=7.0,<8.0",
+#     "matrix-nio[e2e]==0.25.2",
+#     "mistralai==2.0.5",
+#     "duckduckgo-search==7.5.5",
 # ]
 # ///
 
