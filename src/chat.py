@@ -1,5 +1,5 @@
 import logging
-from datetime import date
+from datetime import UTC, datetime
 
 from nio import AsyncClient, MatrixRoom, RoomMessageText
 
@@ -108,7 +108,8 @@ async def handle_message(room: MatrixRoom, event: RoomMessageText) -> None:
 
     try:
         context = await fetch_context(room, event)
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(date=date.today().isoformat())
+        today = datetime.now(UTC).date().isoformat()
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(date=today)
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context)
         messages.append({"role": "user", "content": query})

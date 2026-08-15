@@ -2,7 +2,7 @@ import base64
 import hashlib
 import logging
 
-import olm
+import vodozemac
 from nio import (
     AsyncClient,
     KeyVerificationCancel,
@@ -142,8 +142,11 @@ async def _room_sas_start(room, req_id, v, content):
     if content.get("method") != "m.sas.v1":
         return
 
-    sas = olm.Sas()
+    sas = vodozemac.Sas()
     v["sas"] = sas
+    # vodozemac's diffie_hellman() consumes the Sas, so keep our public key
+    # around -- it is needed again when we echo it back in verification.key.
+    v["our_key"] = sas.public_key.to_base64()
     v["start_content"] = content
 
     kaps = content.get("key_agreement_protocols", [])
@@ -163,7 +166,7 @@ async def _room_sas_start(room, req_id, v, content):
         v["sender_device"] = content["from_device"]
 
     # commitment = base64(SHA256(our_sas_pubkey || canonical_json(start_content)))
-    commit_input = (sas.pubkey + _canonical_json(content)).encode("utf-8")
+    commit_input = (v["our_key"] + _canonical_json(content)).encode("utf-8")
     commitment = (
         base64.b64encode(hashlib.sha256(commit_input).digest()).decode().rstrip("=")
     )
@@ -188,15 +191,17 @@ async def _room_sas_start(room, req_id, v, content):
 
 async def _room_sas_key(room, req_id, v, content):
     their_sas_key = content.get("key")
-    sas = v["sas"]
-    sas.set_their_pubkey(their_sas_key)
+    established = v["sas"].diffie_hellman(
+        vodozemac.Curve25519PublicKey.from_base64(their_sas_key)
+    )
+    v["established"] = established
 
     # Send our SAS public key
     await matrix.room_send(
         room.room_id,
         "m.key.verification.key",
         {
-            "key": sas.pubkey,
+            "key": v["our_key"],
             "m.relates_to": {"rel_type": "m.reference", "event_id": req_id},
         },
     )
@@ -218,14 +223,18 @@ async def _room_sas_key(room, req_id, v, content):
         f"|{USER_ID}|{matrix.device_id}|{our_ed25519}"
         f"|{req_id}"
     )
-    sas.generate_bytes(sas_info, 6)
+    log.info(
+        "SAS emoji indices for %s: %s",
+        req_id,
+        established.bytes(sas_info).emoji_indices,
+    )
 
     # Auto-confirm: send our MAC immediately
     await _room_send_mac(room, req_id, v)
 
 
 async def _room_send_mac(room, req_id, v):
-    sas = v["sas"]
+    established = v["established"]
     sender = v["sender"]
     sender_device = v["sender_device"]
 
@@ -238,12 +247,14 @@ async def _room_send_mac(room, req_id, v):
 
     mac_method = v.get("mac_method", "hkdf-hmac-sha256.v2")
 
-    # hkdf-hmac-sha256.v2 uses fixed base64 (32-byte HKDF key, correct encoding)
-    # NOT calculate_mac_long_kdf which derives a 256-byte key (legacy compat only)
+    # hkdf-hmac-sha256.v2 uses correctly-encoded base64; the older
+    # hkdf-hmac-sha256 keeps libolm's base64 bug, which vodozemac reproduces
+    # under the explicit `_invalid_base64` name. (vodozemac.calculate_mac ==
+    # libolm's calculate_mac_fixed_base64, verified byte-for-byte.)
     if mac_method in ("hkdf-hmac-sha256.v2", "org.matrix.msc3783.hkdf-hmac-sha256"):
-        calc_mac = sas.calculate_mac_fixed_base64
+        calc_mac = established.calculate_mac
     else:
-        calc_mac = sas.calculate_mac
+        calc_mac = established.calculate_mac_invalid_base64
 
     our_ed25519 = matrix.olm.account.identity_keys["ed25519"]
     device_key_id = f"ed25519:{matrix.device_id}"

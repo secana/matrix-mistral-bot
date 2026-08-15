@@ -1,9 +1,10 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
 # dependencies = [
-#     "matrix-nio[e2e]==0.25.2",
+#     "matrix-nio[e2e]==0.26.0",
 #     "mistralai==2.0.5",
 #     "duckduckgo-search==7.5.5",
+#     "pycryptodome==3.23.0",
 # ]
 # ///
 
@@ -11,6 +12,7 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 from nio import (
     AsyncClient,
@@ -64,8 +66,11 @@ if os.path.exists(_device_id_file):
         _saved_device_id = _f.read().strip()
 client_config = ClientConfig(store_sync_tokens=True)
 matrix = AsyncClient(
-    HOMESERVER, USER_ID, device_id=_saved_device_id,
-    store_path=STORE_PATH, config=client_config,
+    HOMESERVER,
+    USER_ID,
+    device_id=_saved_device_id,
+    store_path=STORE_PATH,
+    config=client_config,
 )
 
 
@@ -118,8 +123,7 @@ async def main() -> None:
     resp = await matrix.login(MATRIX_PASSWORD, device_name="MistralBot")
     if hasattr(resp, "access_token"):
         log.info("Logged in, device_id: %s", resp.device_id)
-        with open(_device_id_file, "w") as f:
-            f.write(resp.device_id)
+        await asyncio.to_thread(Path(_device_id_file).write_text, resp.device_id)
     else:
         log.error("Login failed: %s", resp)
         return

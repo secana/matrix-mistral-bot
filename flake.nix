@@ -13,12 +13,7 @@
 
       forAllSystems = fn:
         nixpkgs.lib.genAttrs allSystems
-          (system: fn {
-            pkgs = import nixpkgs {
-              inherit system;
-              config.permittedInsecurePackages = [ "olm-3.2.16" ];
-            };
-          });
+          (system: fn { pkgs = import nixpkgs { inherit system; }; });
 
     in
     let
@@ -27,19 +22,13 @@
     {
       devShells = forAllSystems ({ pkgs }: {
         default = pkgs.mkShell {
+          # No libolm toolchain: the bot uses vodozemac, and both it and
+          # pycryptodome ship prebuilt wheels, so nothing compiles here.
           buildInputs = with pkgs; [
             uv
             docker
             git
-            olm
-            cmake
-            gcc
           ];
-
-          shellHook = ''
-            export LIBRARY_PATH="${pkgs.olm}/lib:$LIBRARY_PATH"
-            export C_INCLUDE_PATH="${pkgs.olm}/include:$C_INCLUDE_PATH"
-          '';
         };
       });
 
