@@ -3,7 +3,7 @@
 # dependencies = [
 #     "matrix-nio[e2e]==0.26.0",
 #     "mistralai==2.0.5",
-#     "duckduckgo-search==7.5.5",
+#     "ddgs==9.14.4",
 #     "pycryptodome==3.23.0",
 # ]
 # ///

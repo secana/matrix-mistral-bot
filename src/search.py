@@ -2,7 +2,8 @@ import asyncio
 import json
 import logging
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 from mistralai.client import Mistral
 
 log = logging.getLogger("mistral-bot")
@@ -45,6 +46,10 @@ def init(api_key: str, model: str, max_tool_rounds: int) -> None:
 def web_search(query: str) -> str:
     log.info("Web search: %s", query)
     try:
+        # ddgs defaults to backend="auto", which rotates over several search
+        # engines. That matters here: DuckDuckGo rate-limits this host's
+        # datacenter IP outright, so a DuckDuckGo-only client returns
+        # "202 Ratelimit" for every query from the VPS.
         results = DDGS().text(query, max_results=5)
         if not results:
             return json.dumps({"results": "No results found."})
@@ -57,6 +62,11 @@ def web_search(query: str) -> str:
             for r in results
         ]
         return json.dumps({"results": formatted})
+    except DDGSException as exc:
+        # Expected upstream condition (rate limit, timeout, no backend
+        # reachable) -- report it without a traceback.
+        log.warning("Web search failed: %s", exc)
+        return json.dumps({"error": "Web search failed."})
     except Exception:
         log.exception("Web search failed")
         return json.dumps({"error": "Web search failed."})
