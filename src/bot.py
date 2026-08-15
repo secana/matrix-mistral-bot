@@ -18,6 +18,7 @@ from nio import (
     AsyncClient,
     ClientConfig,
     InviteMemberEvent,
+    JoinedMembersError,
     KeyVerificationCancel,
     KeyVerificationKey,
     KeyVerificationMac,
@@ -85,12 +86,30 @@ def trust_all_devices() -> None:
                     log.info("Trusted device %s of %s", device.device_id, user_id)
 
 
+async def prepare_room(room: MatrixRoom) -> None:
+    """Make a room ready to receive an encrypted message.
+
+    nio holds room state in memory only, and a sync resumed from a stored token
+    returns just a delta, so `room.users` can be empty for a room the bot is in.
+    That is silently destructive: nio shares the megolm session with the devices
+    of `room.users`, marks the session shared even when that set is empty, and
+    the bot then encrypts a reply nobody holds a key for. Fetching the member
+    list first also makes nio track those users and claim the Olm sessions the
+    key share needs.
+    """
+    if not room.members_synced:
+        resp = await matrix.joined_members(room.room_id)
+        if isinstance(resp, JoinedMembersError):
+            log.error("Could not load members of %s: %s", room.room_id, resp)
+        else:
+            log.info("Loaded %d members of %s", len(room.users), room.room_id)
+    trust_all_devices()
+
+
 # Initialize modules
 search.init(MISTRAL_API_KEY, MISTRAL_MODEL, MAX_TOOL_ROUNDS)
-chat.init(
-    matrix, USER_ID, SYSTEM_PROMPT_TEMPLATE, MAX_CONTEXT_MESSAGES, trust_all_devices
-)
-verification.init(matrix, USER_ID, trust_all_devices)
+chat.init(matrix, USER_ID, SYSTEM_PROMPT_TEMPLATE, MAX_CONTEXT_MESSAGES, prepare_room)
+verification.init(matrix, USER_ID, prepare_room)
 cross_signing.init(matrix, USER_ID, HOMESERVER, STORE_PATH, MATRIX_PASSWORD)
 
 
@@ -142,17 +161,20 @@ async def main() -> None:
     log.info("Trusting all devices...")
     trust_all_devices()
 
-    # Claim one-time keys for all users to establish Olm sessions
+    # Claim one-time keys for all users to establish Olm sessions.
+    # A sync resumed from a stored token returns only a delta, so this can see
+    # no rooms at all -- prepare_room() re-fetches members per room as messages
+    # arrive, which is what actually keeps key sharing correct after a restart.
     log.info("Claiming keys for room members...")
-    for room_id in matrix.rooms:
+    for room_id in list(matrix.rooms):
         room = matrix.rooms[room_id]
-        if room.encrypted:
-            users = [u for u in room.users if u != USER_ID]
-            if users:
-                log.info(
-                    "Sharing group session for %s with %d users", room_id, len(users)
-                )
-                await matrix.share_group_session(room_id)
+        if not room.encrypted:
+            continue
+        await prepare_room(room)
+        users = [u for u in room.users if u != USER_ID]
+        if users:
+            log.info("Sharing group session for %s with %d users", room_id, len(users))
+            await matrix.share_group_session(room_id)
 
     log.info("Listening for messages...")
     matrix.add_event_callback(chat.handle_message, RoomMessageText)

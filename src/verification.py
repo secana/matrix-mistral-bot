@@ -21,16 +21,16 @@ log = logging.getLogger("mistral-bot")
 
 USER_ID: str = ""
 matrix: AsyncClient | None = None
-_trust_all_devices = None
+_prepare_room = None
 
 _room_verifications: dict[str, dict] = {}
 
 
-def init(client: AsyncClient, user_id: str, trust_all_devices_fn=None) -> None:
-    global matrix, USER_ID, _trust_all_devices
+def init(client: AsyncClient, user_id: str, prepare_room_fn=None) -> None:
+    global matrix, USER_ID, _prepare_room
     matrix = client
     USER_ID = user_id
-    _trust_all_devices = trust_all_devices_fn
+    _prepare_room = prepare_room_fn
 
 
 # ── To-device verification handlers ──
@@ -124,8 +124,8 @@ async def handle_room_msg_unknown(room: MatrixRoom, event: RoomMessageUnknown) -
         "sender_device": content.get("from_device", ""),
     }
 
-    if _trust_all_devices:
-        _trust_all_devices()
+    if _prepare_room:
+        await _prepare_room(room)
     await matrix.room_send(
         room.room_id,
         "m.key.verification.ready",

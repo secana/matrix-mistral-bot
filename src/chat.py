@@ -1,7 +1,12 @@
 import logging
 from datetime import UTC, datetime
 
-from nio import AsyncClient, MatrixRoom, RoomMessageText
+from nio import (
+    AsyncClient,
+    MatrixRoom,
+    RoomMessageText,
+    ShareGroupSessionError,
+)
 
 from search import call_mistral
 
@@ -11,7 +16,7 @@ USER_ID: str = ""
 SYSTEM_PROMPT_TEMPLATE: str = ""
 MAX_CONTEXT_MESSAGES: int = 20
 matrix: AsyncClient | None = None
-_trust_all_devices = None
+_prepare_room = None
 
 
 def init(
@@ -19,19 +24,14 @@ def init(
     user_id: str,
     system_prompt_template: str,
     max_context_messages: int,
-    trust_all_devices_fn=None,
+    prepare_room_fn=None,
 ) -> None:
-    global \
-        matrix, \
-        USER_ID, \
-        SYSTEM_PROMPT_TEMPLATE, \
-        MAX_CONTEXT_MESSAGES, \
-        _trust_all_devices
+    global matrix, USER_ID, SYSTEM_PROMPT_TEMPLATE, MAX_CONTEXT_MESSAGES, _prepare_room
     matrix = client
     USER_ID = user_id
     SYSTEM_PROMPT_TEMPLATE = system_prompt_template
     MAX_CONTEXT_MESSAGES = max_context_messages
-    _trust_all_devices = trust_all_devices_fn
+    _prepare_room = prepare_room_fn
 
 
 def is_mention(event: RoomMessageText) -> bool:
@@ -136,9 +136,19 @@ async def handle_message(room: MatrixRoom, event: RoomMessageText) -> None:
             "event_id": thread_id,
         }
 
-    if _trust_all_devices:
-        _trust_all_devices()
+    if _prepare_room:
+        await _prepare_room(room)
     if room.encrypted:
-        await matrix.share_group_session(room.room_id)
+        resp = await matrix.share_group_session(room.room_id)
+        if isinstance(resp, ShareGroupSessionError):
+            log.error("Sharing group session for %s failed: %s", room.room_id, resp)
+        elif not resp.users_shared_with:
+            # nio marks the session shared even when it reached nobody, so
+            # without this the bot would encrypt a reply no one can read.
+            log.warning(
+                "Group session for %s was shared with no devices — recipients "
+                "will not be able to decrypt this reply",
+                room.room_id,
+            )
     await matrix.room_send(room.room_id, "m.room.message", content)
     log.info("Replied in %s (%d chars)", room.room_id, len(reply))
