@@ -2,7 +2,7 @@
 # requires-python = ">=3.12,<3.13"
 # dependencies = [
 #     "matrix-nio[e2e]==0.26.0",
-#     "mistralai==2.0.5",
+#     "mistralai==2.10.1",
 #     "ddgs==9.14.4",
 #     "pycryptodome==3.23.0",
 # ]
